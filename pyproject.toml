@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "data-analysis-agent"
+version = "0.2.1"
+description = "LLM-powered data analysis agent with LangGraph — auto clean, test, visualize, report"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Hong Lifan", email = "3122707578@qq.com" }
+]
+keywords = ["ai-agent", "data-analysis", "langgraph", "llm", "data-science"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+
+dependencies = [
+    "langgraph>=0.2.0",
+    "langchain>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "pandas>=2.0.0",
+    "scipy>=1.10.0",
+    "matplotlib>=3.7.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+web = ["streamlit>=1.28.0"]
+dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+
+[project.scripts]
+daa = "agent:main"
+
+[project.urls]
+Homepage = "https://github.com/Hong-lf0719/data-analysis-agent"
+"Bug Reports" = "https://github.com/Hong-lf0719/data-analysis-agent/issues"
+Source = "https://github.com/Hong-lf0719/data-analysis-agent"
+
+[tool.setuptools.packages.find]
+include = ["tools*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

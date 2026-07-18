@@ -1,0 +1,38 @@
+# 敏感文件 — 绝对不上传
+.env
+*.env
+
+# 测试数据（sample 和 fixtures 需要上传）
+*.xlsx
+
+# 大数据文件 — 仅保留 samples 小样本
+data/raw/
+data/clean/
+
+# 输出产物
+*.png
+*.jpg
+*_report.md
+analysis_report.md
+outputs/
+
+# 临时文件
+_tmp_upload.csv
+_tmp_*
+
+# WorkBuddy 工作目录（本地专用，不上传）
+.workbuddy/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
