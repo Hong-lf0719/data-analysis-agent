@@ -91,7 +91,7 @@ description: Use when the user asks to clean, repair, or preprocess messy data f
 
 ### 8. 收尾
 
-- 输出文件保存为 `clean_output.csv`
+- 输出文件保存为 `data/clean/` 目录下的清洗结果 CSV
 - 问："是否保留清洗脚本？"（用户决定删/留）
 - 结束
 

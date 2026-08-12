@@ -74,7 +74,7 @@ if ready:
     print(f"\r✅ 启动成功！正在打开浏览器...")
     time.sleep(0.5)
     webbrowser.open(url)
-    print(f"⚔️  星见 · 数据分析  →  {url}")
+    print(f"数据分析  →  {url}")
     print("   按 Ctrl+C 停止")
     proc.wait()
 else:

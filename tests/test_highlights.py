@@ -80,6 +80,16 @@ def test_coerce_numeric_extracts_from_text():
     assert abs(float(out.iloc[1]) - 3.8) < 1e-6
 
 
+def test_coerce_numeric_preserves_bracket_columns():
+    # 含比较/区间符号的分组列（如 sleep_bracket: "<5.5h"/"5.5-6.5h"/">7h"）
+    # 应保留为分类字符串，不能被硬提成单一数字而破坏分组语义
+    s = pd.Series(
+        ["<5.5h", "5.5-6.5h", ">7h", "<5.5h", "5.5-6.5h", ">7h"],
+        name="sleep_bracket",
+    )
+    assert _coerce_numeric(s) is None
+
+
 def test_stats_node_computes_correlations():
     df = pd.DataFrame({
         "地区": ["A", "B", "A", "B", "A", "B"],

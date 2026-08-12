@@ -16,7 +16,7 @@ LangGraph 数据分析 Agent — 决策引擎
     回到 analyze（循环）
 """
 
-import os, sys, io, json, re, operator, builtins
+import os, sys, io, json, re, operator, builtins, logging
 from typing import TypedDict, Literal, Annotated
 from dotenv import load_dotenv
 
@@ -108,6 +108,15 @@ def _coerce_numeric(series: "pd.Series") -> "pd.Series | None":
     if re.search(r"(姓名|学号|编号|序号|手机号|电话|手机|邮箱|邮件|身份证|ID|id|日期|时间|date|time|datetime)", name, re.IGNORECASE):
         return None
     s = series.astype(str).str.strip()
+    # 分类/区间/分组列防护：这类列的值通常是 "<5.5h" / "5.5-6.5h" / ">7h"
+    # 之类的阈值表达，表达的是有序分组而非可量化数值。若被硬提成单一数字
+    # （如 5.5）会丢失 <、> 语义并破坏分组标签。直接保留原字符串分类。
+    if re.search(r"(bracket|区间|分段|分组|group|tier|band|level)", name, re.IGNORECASE):
+        return None
+    # 单元格层面：含比较符号(< > ≤ ≥)或区间连字符(X-Y / X–Y)的占比高 → 视为分组列
+    comparison = s.str.contains(r"^\s*[<>≤≥]|[-–]\s*\d", regex=True, na=False)
+    if comparison.mean() >= 0.3:
+        return None
     n = max(len(s), 1)
     # 1) 直接数值化（"2.79" / "100"）
     num = pd.to_numeric(s, errors="coerce")
@@ -129,6 +138,261 @@ def _coerce_numeric(series: "pd.Series") -> "pd.Series | None":
             return None
         return num2
     return None
+
+
+# ── 领域意图层（让自动分析产出"有用"洞察，而非无意义统计检验）──
+def _detect_domain(df: pd.DataFrame) -> dict:
+    """检测数据集所属领域，返回语义列映射。当前支持：招聘/求职。"""
+    cols = {str(c).lower() for c in df.columns}
+    def has(*keys):
+        return any(any(k in c for k in keys) for c in cols)
+    if has("salary", "薪资") and (has("job_title", "title", "岗位") or has("company")) and has("location", "地点"):
+        m = {}
+        for c in df.columns:
+            cl = str(c).lower()
+            if "job_title" in cl or cl in ("title", "岗位", "position"): m["role"] = c
+            elif "company" in cl: m["company"] = c
+            elif "location" in cl or "city" in cl or "地点" in cl: m["location"] = c
+            elif "tech" in cl or "skill" in cl or "stack" in cl: m["tech"] = c
+            elif "salary_min" in cl or cl in ("salary_min", "薪资下限"): m["salary_min"] = c
+            elif "salary_max" in cl or cl in ("salary_max", "薪资上限"): m["salary_max"] = c
+        return {"name": "job_market", "cols": m}
+    # 睡眠 / 教育 / 健康 领域：大学生睡眠与成绩
+    if (has("sleep") or has("睡眠")) and (has("gpa") or has("成绩")):
+        m = {}
+        for c in df.columns:
+            cl = str(c).lower()
+            if "sleep_hours" in cl or cl == "avg_sleep_hours": m["sleep_hours"] = c
+            elif "sleep_minutes" in cl or cl == "avg_sleep_minutes": m["sleep_minutes"] = c
+            elif cl in ("term_gpa", "gpa") or "term_gpa" in cl: m["term_gpa"] = c
+            elif "prior_gpa" in cl: m["prior_gpa"] = c
+            elif "gpa_change" in cl: m["gpa_change"] = c
+            elif "sleep_bracket" in cl or cl == "sleep_bracket": m["sleep_bracket"] = c
+            elif "bedtime_variability" in cl: m["bedtime_variability"] = c
+            elif "under_6h_sleep" in cl: m["under_6h"] = c
+            elif cl in ("gender", "sex", "性别"): m["gender"] = c
+            elif "first_generation" in cl: m["first_generation"] = c
+            elif "underrepresented" in cl: m["underrepresented"] = c
+            elif "university" in cl or "school" in cl or "学校" in cl: m["university"] = c
+        return {"name": "sleep_edu", "cols": m}
+    return {}
+
+
+def _domain_insights(df: pd.DataFrame, dom: dict) -> dict | None:
+    """针对特定领域，用 pandas 确定性计算真正有用的洞察（不依赖 LLM，避免浅分析）。"""
+    name = dom.get("name")
+    if name not in ("job_market", "sleep_edu"):
+        return None
+    if name == "sleep_edu":
+        return _domain_insights_sleep(df, dom)
+    c = dom.get("cols", {})
+    lines, charts, summary_parts = [], [], []
+    n_total = len(df)
+
+    # ── 薪资 + 角色归类 ──
+    if "salary_min" in c and "salary_max" in c:
+        smin = pd.to_numeric(df[c["salary_min"]], errors="coerce")
+        smax = pd.to_numeric(df[c["salary_max"]], errors="coerce")
+        d = df.copy()
+        d["_sal_mid"] = (smin + smax) / 2
+
+        def norm(t):
+            t = str(t).lower()
+            for k in ["machine learning", "data scientist", "data engineer", "ai ", "nlp",
+                      "software", "product manager", "analyst", "devops", "backend",
+                      "frontend", "full stack", "research", "engineer"]:
+                if k in t:
+                    return k.strip()
+            return "other"
+        if "role" in c:
+            d["_role"] = d[c["role"]].astype(str).str.lower().apply(norm)
+            grp = d.groupby("_role")["_sal_mid"].agg(n="size", med="median").sort_values("n", ascending=False)
+            grp = grp[grp["n"] >= 5]
+            if not grp.empty:
+                top = grp.head(10).reset_index()
+                agg = top[["_role", "med"]].rename(columns={"_role": "角色", "med": "薪资中位(USD)"})
+                r = create_chart(agg, "bar", x="角色", y="薪资中位(USD)", filename="chart_dom_salary.png")
+                if r.get("ok"):
+                    charts.append(r)
+                lines.append("### 各角色薪资中位（USD）")
+                lines.append("| 角色 | 样本数 | 薪资中位 |")
+                lines.append("|------|--------|----------|")
+                for _, row in top.iterrows():
+                    lines.append(f"| {row['_role']} | {int(row['n'])} | ${row['med']:,.0f} |")
+                lines.append("")
+                best = grp.sort_values("med", ascending=False).head(1)
+                best_role = best.index[0]
+                best_med = best["med"].iloc[0]
+                summary_parts.append(f"薪资最高的角色是「{best_role}」（中位 ${best_med:,.0f}）" if pd.notna(best_med) else f"薪资最高的角色是「{best_role}」")
+            # AI/ML/数据岗占比
+            raw = df[c["role"]].astype(str)
+            ai = raw.str.contains("AI|Machine Learning|Data|NLP|Research", case=False, na=False).sum()
+            share = ai / n_total * 100 if n_total else 0
+            summary_parts.append(f"AI/ML/数据相关岗位占 {share:.1f}%")
+            lines.append(f"**AI/ML/数据相关岗位：{ai} 条（{share:.1f}%）**\n")
+
+    # ── 技术栈热度 ──
+    if "tech" in c:
+        from collections import Counter
+        all_tech = []
+        for s in df[c["tech"]].dropna():
+            for tok in str(s).split(","):
+                tok = tok.strip()
+                if tok:
+                    all_tech.append(tok)
+        if all_tech:
+            cnt = Counter(all_tech)
+            top_tech = cnt.most_common(12)
+            tech_df = pd.DataFrame({"技术栈": all_tech})
+            r = create_chart(tech_df, "count", column="技术栈", filename="chart_dom_tech.png")
+            if r.get("ok"):
+                charts.append(r)
+            lines.append("### 热门技术栈（Top）")
+            lines.append("| 技术栈 | 出现次数 |")
+            lines.append("|--------|----------|")
+            for t, n in top_tech:
+                lines.append(f"| {t} | {n} |")
+            lines.append("")
+            summary_parts.append(f"最热门技术栈是「{top_tech[0][0]}」（{top_tech[0][1]} 次）")
+
+    # ── 需求地区分布 ──
+    if "location" in c:
+        loc = df[df[c["location"]].notna()][c["location"]].astype(str)
+        if len(loc):
+            top_loc = loc.value_counts().head(10)
+            loc_df = pd.DataFrame({"地点": top_loc.index.tolist()})
+            r = create_chart(loc_df, "count", column="地点", filename="chart_dom_loc.png")
+            if r.get("ok"):
+                charts.append(r)
+            lines.append("### 需求地区分布（Top）")
+            lines.append("| 地点 | 岗位数 |")
+            lines.append("|------|--------|")
+            for loc_name, n in top_loc.items():
+                lines.append(f"| {loc_name} | {n} |")
+            lines.append("")
+            summary_parts.append(f"岗位最多的地区是「{top_loc.index[0]}」")
+
+    return {"text": "\n".join(lines), "charts": charts, "summary": "；".join(summary_parts)}
+
+
+def _domain_insights_sleep(df: pd.DataFrame, dom: dict) -> dict | None:
+    """睡眠/教育领域：确定性计算睡眠时长·规律性 与 GPA 的关联，以及群体差异。"""
+    c = dom.get("cols", {})
+    lines, charts, summary_parts = [], [], []
+    n_total = len(df)
+    if "term_gpa" not in c:
+        return None
+
+    gpa = pd.to_numeric(df[c["term_gpa"]], errors="coerce")
+    sleep_h = None
+    if "sleep_hours" in c:
+        sleep_h = pd.to_numeric(df[c["sleep_hours"]], errors="coerce")
+    elif "sleep_minutes" in c:
+        sm = pd.to_numeric(df[c["sleep_minutes"]], errors="coerce")
+        sleep_h = sm / 60.0
+
+    # ── 1) 睡眠时长 vs GPA 相关性（核心问题）──
+    if sleep_h is not None:
+        r_sleep = sleep_h.corr(gpa)
+        r_txt = f"{r_sleep:.3f}" if pd.notna(r_sleep) else "n/a"
+        lines.append(f"### 睡眠时长 与 GPA 的相关性（Pearson r = {r_txt}）")
+        lines.append(f"- 平均睡眠 {sleep_h.mean():.2f} 小时；GPA 均值 {gpa.mean():.3f}")
+        if "gpa_change" in c:
+            gc = pd.to_numeric(df[c["gpa_change"]], errors="coerce")
+            r_chg = sleep_h.corr(gc)
+            if pd.notna(r_chg):
+                lines.append(f"- 睡眠时长 与 成绩变化(gpa_change) 相关性 r = {r_chg:.3f}（正=睡得多更可能进步）")
+        lines.append("")
+
+    # ── 2) 各睡眠段 GPA 均值（最直观的图）──
+    if "sleep_bracket" in c:
+        col = c["sleep_bracket"]
+        sub = df[[col, c["term_gpa"]]].dropna()
+        if len(sub):
+            g = sub.groupby(col)[c["term_gpa"]].agg(n="size", gpa="mean")
+            # 按标签中数字自适应排序（<5.5h→5.5, 7.5h+→7.5），不依赖硬编码顺序
+            def _midx(s):
+                nums = re.findall(r"[\d.]+", str(s))
+                return float(nums[0]) if nums else 999
+            g = g.loc[sorted(g.index, key=_midx)]
+            agg = g.reset_index().rename(columns={col: "睡眠段", "gpa": "GPA均值", "n": "样本数"})
+            r = create_chart(agg, "bar", x="睡眠段", y="GPA均值", filename="chart_dom_sleep_gpa.png")
+            if r.get("ok"):
+                charts.append(r)
+            lines.append("### 各睡眠段 GPA 均值")
+            lines.append("| 睡眠段 | 样本数 | GPA均值 |")
+            lines.append("|--------|--------|----------|")
+            for _, row in agg.iterrows():
+                lines.append(f"| {row['睡眠段']} | {int(row['样本数'])} | {row['GPA均值']:.3f} |")
+            lines.append("")
+            lo = g.iloc[0]; hi = g.iloc[-1]
+            summary_parts.append(
+                f"睡眠最少段（{g.index[0]}）GPA 最低（{lo['gpa']:.2f}），"
+                f"睡眠最多段（{g.index[-1]}）GPA 升至 {hi['gpa']:.2f}"
+            )
+
+    # ── 3) 睡眠不足比例 ──
+    if "under_6h" in c:
+        frac = pd.to_numeric(df[c["under_6h"]], errors="coerce").mean()
+        if pd.notna(frac):
+            pct = frac * 100
+            lines.append(f"### 睡眠不足群体（<6h）")
+            lines.append(f"- **{pct:.1f}%** 的学生平均睡眠低于 6 小时")
+            lines.append("")
+            summary_parts.append(f"{pct:.1f}% 学生睡眠不足(<6h)")
+
+    # ── 4) 睡眠规律性 vs GPA ──
+    if "bedtime_variability" in c:
+        bv = pd.to_numeric(df[c["bedtime_variability"]], errors="coerce")
+        r_bv = bv.corr(gpa)
+        if pd.notna(r_bv):
+            lines.append(f"### 睡眠规律性（bedtime_variability）与 GPA")
+            lines.append(f"- 相关性 r = {r_bv:.3f}（接近 0 → 规律性对成绩影响有限，时长更关键）")
+            lines.append("")
+
+    # ── 5) 群体 GPA 差异 ──
+    group_cols = [k for k in ("gender", "first_generation", "underrepresented", "university") if k in c]
+    if group_cols:
+        rows = []
+        for k in group_cols:
+            gg = df.groupby(c[k])[c["term_gpa"]].mean()
+            for label, val in gg.items():
+                rows.append((k, str(label), round(float(val), 3)))
+        if rows:
+            grp_df = pd.DataFrame(rows, columns=["维度", "分组", "GPA均值"])
+            # 组合唯一标签，避免 create_chart 按 x 重新 groupby 时跨维度合并
+            grp_df["标签"] = grp_df["维度"] + ": " + grp_df["分组"].astype(str)
+            r = create_chart(grp_df, "bar", x="标签", y="GPA均值", filename="chart_dom_gpa_group.png")
+            if r.get("ok"):
+                charts.append(r)
+            lines.append("### 群体 GPA 差异")
+            lines.append("| 维度 | 分组 | GPA均值 |")
+            lines.append("|------|------|----------|")
+            for dim, label, val in rows:
+                lines.append(f"| {dim} | {label} | {val:.3f} |")
+            lines.append("")
+            # 找最大差距维度
+            maxgap = 0.0; maxdesc = ""
+            for k in group_cols:
+                gg = df.groupby(c[k])[c["term_gpa"]].mean()
+                if len(gg) >= 2:
+                    gap = gg.max() - gg.min()
+                    if gap > maxgap:
+                        maxgap = gap; maxdesc = f"{k}（最高 {gg.idxmax()} {gg.max():.2f} vs 最低 {gg.idxmin()} {gg.min():.2f}）"
+            if maxdesc:
+                summary_parts.append(f"GPA 群体差距最大在 {maxdesc}")
+
+    # ── 6) prior_gpa 预测力 ──
+    if "prior_gpa" in c:
+        pg = pd.to_numeric(df[c["prior_gpa"]], errors="coerce")
+        r_pg = pg.corr(gpa)
+        if pd.notna(r_pg):
+            lines.append(f"### 历史 GPA 的预测力")
+            lines.append(f"- prior_gpa 与 term_gpa 相关性 r = {r_pg:.3f}（历史成绩是最强单一预测因子）")
+            lines.append("")
+            summary_parts.append(f"历史GPA是最强预测(r={r_pg:.2f})")
+
+    return {"text": "\n".join(lines), "charts": charts, "summary": "；".join(summary_parts)}
 
 
 _NUMERIC_NAME_HINT = re.compile(r"(GPA|gpa|成绩|分数|得分|年龄|岁|收入|薪资|工资|价格|单价|金额|数量|销量|次数|时长|年限|比率|比例|占比|率)")
@@ -201,7 +465,8 @@ def _find_clean_source() -> "str | None":
         p = os.path.join(base, name)
         try:
             d = read_df(p)
-        except Exception:
+        except Exception as e:
+            logger.warning("读取候选干净文件失败 %s: %s", p, e)
             continue
         if d.shape[0] < 2 or d.shape[1] < 2:
             continue
@@ -223,7 +488,8 @@ def _resolve_best_source(filepath: str):
     """
     try:
         df = read_df(filepath)
-    except Exception:
+    except Exception as e:
+        logger.warning("加载原始文件失败，跳过智能数据源切换: %s", e)
         return filepath, False, ""
     if not _is_structurally_damaged(df):
         return filepath, False, ""
@@ -251,7 +517,8 @@ def _current_problem_count(state: AnalysisState) -> int:
     try:
         issues = json.loads(state.get("issues_json", "") or "{}")
         return issues.get("problem_count", 0) if isinstance(issues, dict) else 0
-    except Exception:
+    except Exception as e:
+        logger.debug("解析问题数失败: %s", e)
         return 0
 
 
@@ -318,6 +585,7 @@ def _extract_json(raw):
 
 # ── LLM ──
 _llm_cache = None
+logger = logging.getLogger(__name__)
 
 def create_llm():
     global _llm_cache
@@ -390,6 +658,11 @@ def analyze_node(state: AnalysisState) -> dict:
 5. load+stats+viz 完成 → report
 6. 当前第 {step}/{MAX_STEPS} 步
 
+## 领域意图（若数据明显属于某领域，优先规划能回答该领域核心问题的分析）
+- 招聘/求职数据：岗位薪资分布与排名、热门技术栈、需求地区分布、不同岗位差异
+- 睡眠/教育数据：睡眠时长·规律性与 GPA 的关联、睡眠不足比例、群体（性别/第一代大学生/院校）GPA 差异、历史 GPA 预测力
+- 不要只做通用统计检验而忽略业务可读性（报告阶段会自动补充领域洞察章节）
+
 返回 JSON（不要 markdown 包裹）：
 {{"summary":"...","next_action":"load|clean|stats|viz|report|done","reason":"..."}}"""
 
@@ -403,6 +676,7 @@ def analyze_node(state: AnalysisState) -> dict:
         # LLM 失效（网络/Key/限流）→ 不崩溃，交给 _decide_action 的确定性兜底
         _emit(f"   [LLM 异常，启用确定性路由兜底] {e}")
         d = {}
+        response = None
 
     llm_action = d.get("next_action")  # 可能为 None，_decide_action 会退化推进
 
@@ -421,7 +695,7 @@ def analyze_node(state: AnalysisState) -> dict:
             "step_num": step, "step": "analyze",
             "summary": d.get("summary",""), "decision": action,
         }],
-        "messages": [AIMessage(content=response.content)],
+        "messages": [AIMessage(content=response.content if response else "")],
     })
 
 # ── 加载节点 ──
@@ -570,7 +844,8 @@ def clean_node(state: AnalysisState) -> dict:
                 if col in cleaned.columns:
                     Q1, Q3 = cleaned[col].quantile(0.25), cleaned[col].quantile(0.75)
                     IQR = Q3 - Q1
-                    cleaned = cleaned[(cleaned[col] >= Q1 - 3*IQR) & (cleaned[col] <= Q3 + 3*IQR)]
+                    mask = (cleaned[col] >= Q1 - 3*IQR) & (cleaned[col] <= Q3 + 3*IQR)
+                    cleaned = cleaned[mask & cleaned[col].notna()]
                     action_log.append(f"✓ 删除异常值: {col}")
 
             elif act_type == "fillna":
@@ -748,7 +1023,8 @@ def report_node(state: AnalysisState) -> dict:
             "shape": [int(_df.shape[0]), int(_df.shape[1])],
             "columns": [str(c) for c in _df.columns],
         }
-    except Exception:
+    except Exception as e:
+        logger.warning("生成清洗后数据概况失败: %s", e)
         _df = None
         cleaned_overview = None
 
@@ -767,19 +1043,41 @@ def report_node(state: AnalysisState) -> dict:
     base = rr.get("report", rr.get("preview", ""))
     chart_files = rr.get("charts", [])  # 图表绝对路径清单，供导出器内嵌
 
+    # ── 领域洞察：确定性 pandas 计算，保证自动报告"有用"而非凑流程 ──
+    dom_text, dom_summary, dom_name = "", "", ""
+    if _df is not None:
+        try:
+            dom = _detect_domain(_df)
+            if dom:
+                ins = _domain_insights(_df, dom)
+                if ins:
+                    dom_text = ins["text"]
+                    dom_summary = ins["summary"]
+                    dom_name = dom["name"]
+                    for ch in ins["charts"]:
+                        if ch.get("ok") and ch.get("file"):
+                            chart_files.append(ch["file"])
+                            rel = ("outputs/" + os.path.basename(ch["file"])).replace("\\", "/")
+                            ctype = ch.get("chart_type", "图表")
+                            dom_text += f"\n![{ctype}]({rel})\n*{ctype} 图*\n"
+                    _emit(f"   [领域洞察·{dom['name']}] {dom_summary}")
+        except Exception as e:
+            _emit(f"   [领域洞察跳过] {e}")
+
     # LLM 生成业务洞察（API 不可用时不崩溃，给出降级说明）
     llm = create_llm()
     log_text = json.dumps([{
         "step": e.get("step"), "summary": e.get("summary"),
     } for e in log], ensure_ascii=False)
 
-    prompt = f"""基于分析记录，给出业务建议（200字内）。
+    prompt = f"""基于分析记录与领域发现，给出业务建议（200字内）。
 
 分析记录：{log_text}
 数据摘要：{dj[:1000]}
+领域发现：{dom_summary if dom_summary else '（无特定领域）'}
 
 输出：
-1. 关键发现（2-3条）
+1. 关键发现（2-3条，结合领域发现）
 2. 业务建议（2-3条）"""
 
     try:
@@ -792,7 +1090,11 @@ def report_node(state: AnalysisState) -> dict:
         _emit(f"   [LLM 异常，跳过业务洞察] {e}")
         insights = "（本次未生成 LLM 业务洞察：API 暂时不可用。报告已包含完整的数据概况、清洗、统计检验与可视化结论。）"
 
-    full = base + "\n\n## 业务洞察\n\n" + insights
+    full = base
+    if dom_text:
+        _dom_label = {"job_market": "求职视角", "sleep_edu": "睡眠/教育视角"}.get(dom_name, dom_name)
+        full += f"\n\n## 领域洞察（{_dom_label}）\n\n" + dom_text
+    full += "\n\n## 业务洞察\n\n" + insights
 
     with open("analysis_report.md", "w", encoding="utf-8") as f:
         f.write(full)
@@ -967,14 +1269,16 @@ def _interactive_loop(result: dict, filepath: str):
     if df_json:
         try:
             df = pd.read_json(io.StringIO(df_json), orient="split")
-        except Exception:
+        except Exception as e:
+            logger.warning("还原清洗后 DataFrame 失败: %s", e)
             df = None
     else:
         df = None
     if df is None:
         try:
             df = read_df(filepath)
-        except Exception:
+        except Exception as e:
+            logger.warning("追问回退读取原文件失败: %s", e)
             df = None
 
     _emit(f"\n{'='*60}")

@@ -56,7 +56,7 @@ def generate_report(analysis_log: list[dict], data_summary: str = "",
             sections.append(f"- 字段：{', '.join(overview['columns'])}")
         if overview.get("encoding"):
             sections.append(f"- 编码：{overview['encoding']}")
-        if load_entries[-1].get("summary"):
+        if load_entries and load_entries[-1].get("summary"):
             sections.append(f"- 摘要：{load_entries[-1]['summary']}")
         sections.append("")
 
@@ -71,9 +71,9 @@ def generate_report(analysis_log: list[dict], data_summary: str = "",
             sections.append(f"- 发现问题数：{r['problem_count']}")
         if r.get("warning"):
             sections.append(f"\n> ⚠️ **数据质量警告**：{r['warning']}")
-        if r.get("actions_taken"):
+        if r.get("actions_taken") or r.get("actions"):
             sections.append("\n### 清洗操作\n")
-            for action in r["actions_taken"]:
+            for action in (r.get("actions_taken") or r.get("actions") or []):
                 sections.append(f"- {action}")
 
         # 旧格式兼容

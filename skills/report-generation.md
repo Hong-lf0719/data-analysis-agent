@@ -133,7 +133,7 @@ E) 纯文本
 📊 图表 → charts/01_xxx.png
 📊 图表 → charts/02_xxx.png
 📜 脚本 → scripts/analysis.py（已保留）
-📂 数据 → data/clean_output.csv
+📂 数据 → data/clean/
 ```
 
 ### 8. 询问反馈

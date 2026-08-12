@@ -4,7 +4,7 @@
 
 启动：streamlit run app.py
 """
-import sys, os, io, json, time
+import sys, os, io, json, time, atexit
 
 import streamlit as st
 import pandas as pd
@@ -18,6 +18,10 @@ st.set_page_config(
 
 # 把项目根目录加入 path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# 上传临时文件：进程退出时清理，避免项目根目录残留 _tmp_upload.csv
+_TMP_UPLOAD_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_tmp_upload.csv")
+atexit.register(lambda: os.path.exists(_TMP_UPLOAD_PATH) and os.remove(_TMP_UPLOAD_PATH))
 
 from agent import create_agent, _get_df, _set_df, _safe, AnalysisState, answer_question
 from agent import _is_structurally_damaged, _find_clean_source
@@ -514,7 +518,7 @@ if uploaded:
     st.dataframe(df.head(10), use_container_width=True, hide_index=True)
 
     # 保存临时文件（统一 UTF-8 编码，避免乱码）
-    tmp_path = os.path.join(os.path.dirname(__file__), "_tmp_upload.csv")
+    tmp_path = _TMP_UPLOAD_PATH
     df.to_csv(tmp_path, index=False, encoding="utf-8-sig")
     st.session_state.tmp_path = tmp_path
     st.session_state._current_df = df  # 暂存当前 df（供分析块和回退用）
@@ -687,7 +691,7 @@ if uploaded and st.session_state.analysis_done:
     st.subheader("📊 分析指标")
     try:
         if quality is None and cleaned_df is not None:
-            from tools.quality import quality_score
+            from tools.quality import quality_score, quality_label
             quality = quality_score(cleaned_df)
         if quality:
             c1, c2, c3, c4 = st.columns(4)

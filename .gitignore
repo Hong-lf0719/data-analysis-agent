@@ -8,17 +8,23 @@
 # 大数据文件 — 仅保留 samples 小样本
 data/raw/
 data/clean/
+data/real/
+
+# 验证产物（含数据/图表，不上传）
+validation/
 
 # 输出产物
 *.png
 *.jpg
 *_report.md
 analysis_report.md
+analysis_report_*.md
 outputs/
 
 # 临时文件
 _tmp_upload.csv
 _tmp_*
+tests/.last_run.txt
 
 # WorkBuddy 工作目录（本地专用，不上传）
 .workbuddy/

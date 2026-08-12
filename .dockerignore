@@ -1,0 +1,12 @@
+.git
+.gitignore
+.env
+.env.*
+*.md
+__pycache__
+*.pyc
+.pytest_cache
+data/raw
+data/real
+outputs
+validation
