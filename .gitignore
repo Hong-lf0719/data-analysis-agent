@@ -16,6 +16,8 @@ validation/
 # 输出产物
 *.png
 *.jpg
+# 但文档里的真实演示产物要进仓库（README 首屏用）
+!docs/screenshots/*.png
 *_report.md
 analysis_report.md
 analysis_report_*.md

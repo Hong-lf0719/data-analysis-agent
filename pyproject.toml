@@ -10,7 +10,7 @@ readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
 authors = [
-    { name = "Hong Lifan", email = "3122707578@qq.com" }
+    { name = "Hong-lf0719" }
 ]
 keywords = ["ai-agent", "data-analysis", "langgraph", "llm", "data-science"]
 classifiers = [

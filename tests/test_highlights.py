@@ -214,7 +214,7 @@ def test_chart_saved_to_outputs_dir(tmp_path):
 def test_app_session_state_defaults():
     """验证 app.py 顶部的 session_state 初始化块使用了我们期望的键名集合。"""
     import re
-    src = open("D:/31227/应用/数据分析agent/app.py", "r", encoding="utf-8").read()
+    src = open(os.path.join(os.path.dirname(__file__), "..", "app.py"), "r", encoding="utf-8").read()
     # 找到 session_state 初始化代码段
     m = re.search(r"for _k, _v in \{(.+?)\}\.items\(\):", src, re.DOTALL)
     assert m, "应包含 session_state 默认值初始化块"
@@ -228,7 +228,7 @@ def test_app_session_state_defaults():
 
 def test_app_results_section_gated_on_session_state():
     """验证结果展示区由 session_state.analysis_done 守门，不再依赖 analyze_btn。"""
-    src = open("D:/31227/应用/数据分析agent/app.py", "r", encoding="utf-8").read()
+    src = open(os.path.join(os.path.dirname(__file__), "..", "app.py"), "r", encoding="utf-8").read()
     # 关键：结果展示块用 st.session_state.analysis_done 而不是 analyze_btn
     assert "st.session_state.analysis_done" in src, "应使用 session_state.analysis_done 守门"
     # 不应再出现"if uploaded and analyze_btn:"包含最终展示块
@@ -244,7 +244,7 @@ def test_app_results_section_gated_on_session_state():
 
 def test_app_new_upload_resets_state():
     """验证检测到新文件时正确重置分析相关 state。"""
-    src = open("D:/31227/应用/数据分析agent/app.py", "r", encoding="utf-8").read()
+    src = open(os.path.join(os.path.dirname(__file__), "..", "app.py"), "r", encoding="utf-8").read()
     # 找到新文件检测段
     m = re.search(r"if uploaded and uploaded\.name != st\.session_state\.uploaded_name:(.+?)(?=\n# ──|\nif uploaded:)", src, re.DOTALL)
     assert m, "应有新文件检测段"
@@ -256,7 +256,7 @@ def test_app_new_upload_resets_state():
 
 def test_app_save_results_to_session_state():
     """验证分析结束后所有结果都写入 session_state（关键修复）。"""
-    src = open("D:/31227/应用/数据分析agent/app.py", "r", encoding="utf-8").read()
+    src = open(os.path.join(os.path.dirname(__file__), "..", "app.py"), "r", encoding="utf-8").read()
     # 找到 "st.session_state.analysis_done = True" 附近
     idx = src.find("st.session_state.analysis_done = True")
     assert idx > 0, "应设置 analysis_done = True"

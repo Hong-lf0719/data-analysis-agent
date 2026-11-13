@@ -1248,16 +1248,6 @@ def analyze(filepath: str) -> dict:
             "df_json": final.values.get("df_json", ""),
             "chart_files": final.values.get("chart_files", [])}
 
-if __name__ == "__main__":
-    import sys
-    if len(sys.argv) < 2:
-        _emit("用法: python agent.py <文件路径>")
-        _emit("示例: python agent.py data/sample_sales.csv")
-        sys.exit(1)
-    result = analyze(sys.argv[1])
-    _interactive_loop(result, sys.argv[1])
-
-
 def _interactive_loop(result: dict, filepath: str):
     """分析完成后的交互式问答"""
     import sys
@@ -1314,9 +1304,17 @@ def main():
     import sys
     if len(sys.argv) < 2:
         _emit("用法: daa <文件路径>")
-        _emit("示例: daa data/sample_sales.csv")
+        _emit("示例: daa examples/sample_sales.csv")
         sys.exit(1)
     result = analyze(sys.argv[1])
-    _interactive_loop(result, sys.argv[1])
+    # 非交互环境（CI / Docker / 管道）不进追问循环，避免 input() 永久阻塞
+    if sys.stdin.isatty():
+        _interactive_loop(result, sys.argv[1])
+    else:
+        _emit("（非交互模式，跳过追问；多轮追问请走 Streamlit Web UI）")
     if not result.get("ok"):
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
