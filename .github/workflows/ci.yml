@@ -27,5 +27,5 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-cov
 
-      - name: Run 60 tests
+      - name: Run test suite
         run: pytest tests/ -q --cov=tools --cov=agent --cov-report=term-missing

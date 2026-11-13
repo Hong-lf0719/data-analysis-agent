@@ -450,12 +450,14 @@ def _is_structurally_damaged(df: "pd.DataFrame") -> bool:
     return False
 
 
-def _find_clean_source() -> "str | None":
+def _find_clean_source(base: "str | None" = None) -> "str | None":
     """在 data/clean/ 下寻找一个结构正常的 CSV 作为干净数据源。
 
     评分优先：列数适中、数值列多的文件更可能是「已清洗的可分析数据」。
+    base 可由测试注入临时目录，避免依赖被 .gitignore 排除的本地数据。
     """
-    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "clean")
+    if base is None:
+        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "clean")
     if not os.path.isdir(base):
         return None
     candidates = []

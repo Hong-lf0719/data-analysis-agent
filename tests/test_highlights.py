@@ -138,23 +138,48 @@ def test_is_structurally_damaged_false_for_clean():
     assert _is_structurally_damaged(df) is False
 
 
-def test_find_clean_source_returns_clean_file():
-    from agent import _find_clean_source
-    p = _find_clean_source()
-    assert p is not None
-    assert "clean_career_data.csv" in p
-
-
-def test_resolve_best_source_switches_to_clean(tmp_path):
+def _write_clean_csv(dirpath, name="clean_career_data.csv"):
+    """在临时目录造一份结构正常的 CSV，使测试不依赖仓库外的本地数据。"""
     import pandas as pd
+    p = os.path.join(str(dirpath), name)
+    pd.DataFrame({
+        "姓名": ["s1", "s2", "s3"],
+        "专业背景": ["医学", "计算机", "统计"],
+        "GPA": [3.1, 2.8, 3.6],
+        "就业方向": ["研究", "工程", "分析"],
+    }).to_csv(p, index=False, encoding="utf-8")
+    return p
+
+
+def test_find_clean_source_returns_clean_file(tmp_path):
+    from agent import _find_clean_source
+    clean = _write_clean_csv(tmp_path)
+    assert _find_clean_source(str(tmp_path)) == clean
+    # 空目录 / 目录不存在时优雅返回 None
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert _find_clean_source(str(empty)) is None
+    assert _find_clean_source(str(tmp_path / "missing")) is None
+
+
+def test_resolve_best_source_switches_to_clean(tmp_path, monkeypatch):
+    import agent as agent_mod
     from agent import _resolve_best_source
+    clean = _write_clean_csv(tmp_path)
     damaged = _make_damaged_df()
     fp = tmp_path / "broken.csv"
     damaged.to_csv(fp, index=False)
+
+    monkeypatch.setattr(agent_mod, "_find_clean_source", lambda *a, **k: clean)
     best, switched, note = _resolve_best_source(str(fp))
     assert switched is True
     assert "clean_career_data.csv" in best
     assert "损坏" in note
+
+    # 无干净数据源时不切换，保持原文件
+    monkeypatch.setattr(agent_mod, "_find_clean_source", lambda *a, **k: None)
+    best2, switched2, note2 = _resolve_best_source(str(fp))
+    assert (best2, switched2, note2) == (str(fp), False, "")
 
 
 # ── 多格式导出器 ──
