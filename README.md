@@ -5,6 +5,8 @@
 [![tests](https://img.shields.io/badge/tests-60%20passed-brightgreen)](../../actions)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
+📦 **Installable skill**: [csv-insight-report on Agensi](https://www.agensi.io/skills/csv-insight-report) — upload a CSV, get an analyst-grade report, no API key needed.
+
 **上传一份 CSV，拿回一份带假设检验、图表和业务结论的分析报告。**
 
 > **Upload a CSV, get back a report with hypothesis tests, charts, and business findings.**
