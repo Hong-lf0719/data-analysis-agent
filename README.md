@@ -73,7 +73,7 @@ data-analysis-agent/
 ├── agent.py            ← LangGraph 决策引擎
 ├── app.py              ← Streamlit Web UI
 ├── tools/              ← 工具层（加载/清洗/统计/可视化/报告/导出）
-├── skills/             ← SKILL.md 校验规则（779 行）
+├── skills/             ← 子 skill 定义 + 校验规则（6 个文件，合计 779 行）
 ├── tests/              ← 单元测试（59 个用例）
 ├── data/samples/       ← 示例数据
 ├── deploy/             ← Dockerfile + docker-compose
