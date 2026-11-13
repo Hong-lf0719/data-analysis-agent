@@ -7,6 +7,9 @@
 
 **上传一份 CSV，拿回一份带假设检验、图表和业务结论的分析报告。**
 
+> **Upload a CSV, get back a report with hypothesis tests, charts, and business findings.**
+> Agent-native: ships an open-standard [`SKILL.md`](SKILL.md) — load this repo in Claude Code, Cursor, Codex CLI, or any skill-compatible agent and it runs the full pipeline. ([6 sub-skills](skills/) · [99-line validation rules](docs/质量防线.md))
+
 LangGraph 决策引擎按数据状态动态路由；LLM 不可用、返回异常 JSON 或 API 超时时自动降级为确定性流程，**报告照常产出**。
 
 [看一份真实跑出来的报告](docs/真实运行报告.md) · [12,003 行岗位数据报告](examples/示例报告.md) · [浏览器直接打开的 HTML 版](docs/screenshots/报告预览.html) · [质量防线](docs/质量防线.md)
@@ -130,6 +133,10 @@ data-analysis-agent/
 ├── deploy/             ← Dockerfile + docker-compose
 └── .github/workflows/  ← CI
 ```
+
+## 我的其他项目
+
+- [Hermes Sentinel](https://github.com/Hong-lf0719/Hermes-Sentinel) — 多渠道 AI 情报助手（FastAPI + DeepSeek + RAG + 岗位雷达），端到端可跑的 Agent 系统。
 
 ## License
 
