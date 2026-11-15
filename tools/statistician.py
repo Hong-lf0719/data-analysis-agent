@@ -60,6 +60,13 @@ def run_test(data1: np.ndarray, data2: Optional[np.ndarray] = None,
     """
     result = {}
 
+    # 零方差守卫：常数数据做均值检验没有意义（t 值 0/0 → 静默 nan），
+    # 明确报错优于让下游拿到 nan 后误判——评测集「常数列」用例发现的缺口。
+    if len(data1) and float(np.std(data1)) == 0.0:
+        return {"error": "零方差数据（常数列），均值检验无意义", "test_used": "跳过"}
+    if data2 is not None and len(data2) and float(np.std(data2)) == 0.0:
+        return {"error": "零方差数据（常数列），均值检验无意义", "test_used": "跳过"}
+
     # 自动选择
     if test_type == "auto":
         if data2 is None:

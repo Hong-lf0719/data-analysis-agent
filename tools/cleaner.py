@@ -152,4 +152,5 @@ def clean_data(df: pd.DataFrame, actions: list[dict]) -> dict:
         "remaining_cols": len(df.columns),
         "log": log,
         "cleaned_summary": df.describe(include="all").to_dict(),
+        "df": df,  # 评测/调用方需要清洗后 DataFrame 验证不变量（原返回不含）
     }
